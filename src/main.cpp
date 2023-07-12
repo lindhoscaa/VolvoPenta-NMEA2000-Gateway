@@ -72,8 +72,8 @@ void setup() {
   NMEA2000.SetProductInformation("1", // Manufacturer's Model serial code
                                  100, // Manufacturer's product code
                                  "Lindh Technologies Volvo Penta Gateay",  // Manufacturer's Model ID
-                                 "SW-Vers:  1.0 (7-7-2023)",  // Manufacturer's Software version code
-                                 "HW v: 1.0 (7-7-2023)" // Manufacturer's Model version
+                                 "v1.0 (7-7-2023)",  // Manufacturer's Software version code
+                                 "HW v1.0" // Manufacturer's Model version
                                 );
 // Set device information
   NMEA2000.SetDeviceInformation((unsigned long)chipId, // Unique number. Use e.g. Serial number.
