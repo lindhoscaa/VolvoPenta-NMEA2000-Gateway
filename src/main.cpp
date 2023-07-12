@@ -87,7 +87,7 @@ void setup() {
   preferences.end();
   Serial.printf("\nN2K-nodeAddress=%d\n", nodeAddress);
 
-// If you also want to see all traffic on the bus use N2km_ListenAndNode instead of N2km_NodeOnly below
+// To also see all traffic on the bus use N2km_ListenAndNode instead of N2km_NodeOnly below
   NMEA2000.SetMode(tNMEA2000::N2km_NodeOnly, nodeAddress);
   NMEA2000.ExtendTransmitMessages(transmitMessages);
 
