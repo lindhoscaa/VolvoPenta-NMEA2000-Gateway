@@ -1,7 +1,6 @@
-#include <Arduino.h>
-
-#define ESP32_CAN_TX_PIN GPIO_NUM_27  // Set CAN TX port to 26  
-#define ESP32_CAN_RX_PIN GPIO_NUM_26  // Set CAN RX port to 27
+#define ESP32_CAN_TX_PIN GPIO_NUM_27  // Set CAN TX port to 27  
+#define ESP32_CAN_RX_PIN GPIO_NUM_26  // Set CAN RX port to 26
+#define NUMBER_OF_SPEED_READS_TO_DETERMINE_ENGINE_STATE 2
 
 #include <Arduino.h>
 #include <Preferences.h>
@@ -18,25 +17,32 @@ typedef struct
   double speed;
   double oilPressure;
   double oilTemperature;
+  bool started;
 } EngineData_type;
 
-EngineData_type engineData = {.runningHours = 0, .waterTemperature = 0,.voltage = 0, .speed = 0};
+EngineData_type engineData = {.runningHours = 0,
+                              .waterTemperature = 0,
+                              .voltage = 0, .speed = 0,
+                              .oilPressure = 0,
+                              .oilTemperature = 0,
+                              .started = false};
 
 int nodeAddress;            // To store last Node Address
-Preferences preferences;    // Nonvolatile storage on ESP32 - To store LastDeviceAddress
+Preferences preferences;    // Nonvolatile storage on ESP32
 
-
+unsigned int noOfNonZeroRpmRead = 0;
+unsigned int noOfZeroRpmRead = 0;
+unsigned int noOfShudownsDetected = 0;
 const unsigned long transmitMessages[] PROGMEM = {127488L, 127489L,0}; // Set the information for other bus devices, which messages we support
 
 #define CAN0_INT 17                            
 MCP_CAN CAN0(5);                               
 
 // forward declarations
-void          SayHello(void);
-void          CheckSourceAddressChange(void);
+void Say_Hello(void);
+void Check_Source_Address_Change(void);
+void Save_Engine_Hours(void);
 
-
-//*****************************************************************************
 void setup() {
   uint8_t chipId = 0;
   uint32_t id = 0, i;
@@ -44,7 +50,7 @@ void setup() {
   Serial.begin(115200);
   delay(50);
 
-  SayHello();  // print some useful information to USB-serial
+  Say_Hello();  // print some useful information to USB-serial
 
   if(CAN0.begin(MCP_ANY, CAN_500KBPS, MCP_16MHZ) == CAN_OK) // Initialize MCP2515 running at 16MHz with a baudrate of 500kb/s and the masks and filters disabled.
     Serial.println("MCP2515 Initialized Successfully");
@@ -84,8 +90,10 @@ void setup() {
 
   preferences.begin("nvs", false);                          // Open nonvolatile storage (nvs)
   nodeAddress = preferences.getInt("LastNodeAddress", 37);  // Read stored last nodeAddress, default 34
+  engineData.runningHours = (double)preferences.getFloat("RunningHours", 0.0); // Read stored running hours, default 0.0
   preferences.end();
-  Serial.printf("\nN2K-nodeAddress=%d\n", nodeAddress);
+  Serial.printf("\nN2K-nodeAddress: %d\n", nodeAddress);
+  Serial.printf("\nEngine hours: %.2f\n", engineData.runningHours);
 
 // To also see all traffic on the bus use N2km_ListenAndNode instead of N2km_NodeOnly below
   NMEA2000.SetMode(tNMEA2000::N2km_NodeOnly, nodeAddress);
@@ -106,7 +114,7 @@ void loop()
   
   NMEA2000.ParseMessages();  // to be removed?
 
-  CheckSourceAddressChange();
+  Check_Source_Address_Change();
 
   if ( Serial.available())   // Dummy to empty input buffer to avoid board to stuck with e.g. NMEA Reader
   {      
@@ -151,6 +159,25 @@ void loop()
     }
     currentTime = millis();
   }
+  if (engineData.speed > 0 && !engineData.started){
+    noOfZeroRpmRead = 0;
+    noOfNonZeroRpmRead += 1;
+    if(noOfNonZeroRpmRead >= NUMBER_OF_SPEED_READS_TO_DETERMINE_ENGINE_STATE){
+      engineData.started = true;
+      noOfNonZeroRpmRead = 0;
+      Serial.printf("Engine start detected\n");
+      }
+  }
+  if (engineData.speed <= 0 && engineData.started) {
+    noOfNonZeroRpmRead = 0;
+    noOfZeroRpmRead += 1;
+    if (noOfZeroRpmRead >= NUMBER_OF_SPEED_READS_TO_DETERMINE_ENGINE_STATE){
+      engineData.started = false;
+      Serial.printf("Engne shutdown detected, saving engine hours...\n");
+      Save_Engine_Hours();
+    }
+  }
+
   N2kMsg = (unsigned char)61444;
   SetN2kPGN127488(N2kMsg, 0, (double) engineData.speed, (double) N2kDoubleNA, (int8_t) N2kInt8NA); // prepare the datagramm
   NMEA2000.SendMsg(N2kMsg);
@@ -161,13 +188,11 @@ void loop()
   NMEA2000.SendMsg(N2kMsg);
 
   Serial.printf("Sent NMEA data\n");
-
-
+  Serial.printf("Number of SD Detected: %u\n", noOfShudownsDetected);
 } 
 
-//*****************************************************************************
 // Function to check if SourceAddress has changed (due to address conflict on bus)
-void CheckSourceAddressChange() 
+void Check_Source_Address_Change() 
 {
   int SourceAddress = NMEA2000.GetN2kSource();
 
@@ -180,8 +205,7 @@ void CheckSourceAddressChange()
   }
 }
 
-//*****************************************************************************
-void SayHello()
+void Say_Hello()
 {
   char Sketch[80], buf[256], Version[80];
   int i;
@@ -202,4 +226,13 @@ void SayHello()
   // Sketch date/time of compliation
   sprintf(buf, "\nSketch: \"%s\", compiled %s, %s\n", Sketch, __DATE__, __TIME__);
   Serial.println(buf);
+}
+
+void Save_Engine_Hours()
+{
+  preferences.begin("nvs", false);
+  preferences.putFloat("RunningHours", (float)engineData.runningHours);
+  preferences.end();
+  Serial.printf("Engine shutdown detetected, running hours saved: %.2f\n", engineData.runningHours);
+  noOfShudownsDetected += 1;
 }
