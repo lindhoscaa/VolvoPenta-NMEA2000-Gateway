@@ -1,3 +1,5 @@
+//#define WIRELESS_MODE 1               //Comment this to disable OTA and WebSerial support
+
 #define ESP32_CAN_TX_PIN GPIO_NUM_27  // Set CAN TX port to 27  
 #define ESP32_CAN_RX_PIN GPIO_NUM_26  // Set CAN RX port to 26
 #define NUMBER_OF_SPEED_READS_TO_DETERMINE_ENGINE_STATE 2
@@ -8,6 +10,19 @@
 #include <N2kMessages.h>
 #include <mcp_can.h>
 #include <SPI.h>
+
+#ifdef WIRELESS_MODE
+#include <WiFi.h>
+#include <AsyncTCP.h>
+#include <ESPAsyncWebServer.h>
+#include <AsyncElegantOTA.h>
+#include <WebSerial.h>
+
+const char* ssid = "oscars";
+const char* password = "kalleanka";
+
+AsyncWebServer server(80);
+#endif
 
 typedef struct
 {
@@ -42,10 +57,36 @@ MCP_CAN CAN0(5);
 void Say_Hello(void);
 void Check_Source_Address_Change(void);
 void Save_Engine_Hours(void);
+void Debug_Print ( const char * format, ... );
 
 void setup() {
+  #ifdef WIRELESS_MODE
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  Serial.println("");
+
+  // Wait for connection
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.print("Connected to ");
+  Serial.println(ssid);
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "text/plain", "Lindh Technologies Volvo Penta Gateway.");
+  });
+
+  AsyncElegantOTA.begin(&server);    // Start ElegantOTA
+  WebSerial.begin(&server);
+  server.begin();
+  Serial.println("HTTP server started");
+  #endif
+
   uint8_t chipId = 0;
-  uint32_t id = 0, i;
 
   Serial.begin(115200);
   delay(50);
@@ -109,7 +150,6 @@ void loop()
   unsigned char len = 0;
   unsigned char dataIn[16];
   tN2kMsg N2kMsg;
-  static int sendStat;
   bool recivedRPM = false;
   
   NMEA2000.ParseMessages();  // to be removed?
@@ -187,8 +227,11 @@ void loop()
   SetN2kPGN127489 (N2kMsg, 0, engineData.oilPressure, engineData.oilTemperature, CToKelvin(engineData.waterTemperature), engineData.voltage, N2kDoubleNA, engineData.runningHours, N2kDoubleNA, N2kDoubleNA, N2kInt8NA, N2kInt8NA, 0x00,0x00);
   NMEA2000.SendMsg(N2kMsg);
 
-  Serial.printf("Sent NMEA data\n");
-  Serial.printf("Number of SD Detected: %u\n", noOfShudownsDetected);
+  //Serial.printf("Sent NMEA data\n");
+  //WebSerial.printf("Sent NMEA data\n");
+  Serial.printf("Sent NMEA2000 data\n");
+
+  Serial.printf("Number of shutdowmns detected: %u\n", noOfShudownsDetected);
 } 
 
 // Function to check if SourceAddress has changed (due to address conflict on bus)
@@ -207,7 +250,7 @@ void Check_Source_Address_Change()
 
 void Say_Hello()
 {
-  char Sketch[80], buf[256], Version[80];
+  char Sketch[80], buf[256];
   int i;
 
   // Get source code filename
@@ -235,4 +278,17 @@ void Save_Engine_Hours()
   preferences.end();
   Serial.printf("Engine shutdown detetected, running hours saved: %.2f\n", engineData.runningHours);
   noOfShudownsDetected += 1;
+}
+
+void Debug_Print ( const char * format, ... )
+{
+  char buffer[256];
+  va_list args;
+  va_start (args, format);
+  vsnprintf (buffer,256,format, args);
+  Serial.printf(buffer);
+  #ifdef WIRELESS_MODE
+  WebSerial.print(buffer);
+  #endif
+  va_end (args);
 }
