@@ -1,4 +1,4 @@
-//#define WIRELESS_MODE 1               //Comment this to disable OTA and WebSerial support
+#define WIRELESS_MODE 1               //Comment this to disable OTA and WebSerial support
 
 #define ESP32_CAN_TX_PIN GPIO_NUM_27  // Set CAN TX port to 27  
 #define ESP32_CAN_RX_PIN GPIO_NUM_26  // Set CAN RX port to 26
@@ -18,9 +18,9 @@
 #include <AsyncElegantOTA.h>
 #include <WebSerial.h>
 
-const char* ssid = "oscars";
-const char* password = "kalleanka";
-
+const char* ssid = "VolvoPenta";
+const char* password = "12345678";
+IPAddress local_IP(192, 168, 1, 100);
 AsyncWebServer server(80);
 #endif
 
@@ -28,6 +28,7 @@ typedef struct
 {
   double runningHours;
   double waterTemperature;
+  double waterTemperatureKelvin;
   double voltage;
   double speed;
   double oilPressure;
@@ -37,6 +38,7 @@ typedef struct
 
 EngineData_type engineData = {.runningHours = 0,
                               .waterTemperature = 0,
+                              .waterTemperatureKelvin = 0,
                               .voltage = 0, .speed = 0,
                               .oilPressure = 0,
                               .oilTemperature = 0,
@@ -48,6 +50,8 @@ Preferences preferences;    // Nonvolatile storage on ESP32
 unsigned int noOfNonZeroRpmRead = 0;
 unsigned int noOfZeroRpmRead = 0;
 unsigned int noOfShudownsDetected = 0;
+unsigned int noOfNoTempReadings = 0;
+bool gotTemperature;
 const unsigned long transmitMessages[] PROGMEM = {127488L, 127489L,0}; // Set the information for other bus devices, which messages we support
 
 #define CAN0_INT 17                            
@@ -60,28 +64,22 @@ void Save_Engine_Hours(void);
 void Debug_Print ( const char * format, ... );
 
 void setup() {
+  delay(2000);
   #ifdef WIRELESS_MODE
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-  Serial.println("");
+  Serial.print("Setting AP (Access Point)…");
+  WiFi.softAP(ssid, password);    /*ESP32 wifi set in Access Point mode*/
 
-  // Wait for connection
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("");
-  Serial.print("Connected to ");
-  Serial.println(ssid);
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
+  IPAddress IP = WiFi.softAPIP();  /*IP address is initialized*/
+  Serial.print("AP IP address: ");
+  Serial.println(IP);  /*Print IP address*/
+  server.begin();
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "text/plain", "Lindh Technologies Volvo Penta Gateway.");
   });
 
   AsyncElegantOTA.begin(&server);    // Start ElegantOTA
-  WebSerial.begin(&server);
+  WebSerial.begin(&server);          // Start WebSerial
   server.begin();
   Serial.println("HTTP server started");
   #endif
@@ -134,7 +132,7 @@ void setup() {
   engineData.runningHours = (double)preferences.getFloat("RunningHours", 0.0); // Read stored running hours, default 0.0
   preferences.end();
   Serial.printf("\nN2K-nodeAddress: %d\n", nodeAddress);
-  Serial.printf("\nEngine hours: %.2f\n", engineData.runningHours);
+  Serial.printf("\nRunning hours: %.2f\n", engineData.runningHours);
 
 // To also see all traffic on the bus use N2km_ListenAndNode instead of N2km_NodeOnly below
   NMEA2000.SetMode(tNMEA2000::N2km_NodeOnly, nodeAddress);
@@ -151,6 +149,7 @@ void loop()
   unsigned char dataIn[16];
   tN2kMsg N2kMsg;
   bool recivedRPM = false;
+  gotTemperature = false;
   
   NMEA2000.ParseMessages();  // to be removed?
 
@@ -183,17 +182,22 @@ void loop()
                     break;
         case 65262: engineData.waterTemperature = dataIn[0] - 40;
                     engineData.oilTemperature = dataIn[3] * 256 + dataIn[2];
+                    engineData.waterTemperatureKelvin = CToKelvin(engineData.waterTemperature);
                     Serial.printf("Recived water temperature: %.1f\n", engineData.waterTemperature);
                     Serial.printf("Recived oil temperature: %.1f\n", engineData.oilTemperature);
-                    Serial.printf("Recived oil temperature: %x  %x\n", dataIn[2], dataIn[3]);
+                    noOfNoTempReadings = 0;
+                    gotTemperature = true;
                     break;
         case 65271: engineData.voltage = (dataIn[7] * 256.0 + dataIn[6]) / 20.0;
                     Serial.printf("Recived alternator voltage: %.1f\n", engineData.voltage);
                     break;
         case 65263: engineData.oilPressure = dataIn[3];
-                    Serial.printf("Recived oil pressure: %u\n", engineData.oilPressure);
+                    Serial.printf("Recived oil pressure: %.1f\n", engineData.oilPressure);
                     break;
         case 65226: Serial.printf("Recived diagnostic data: %x\n", dataIn[0]);
+                    #ifdef WIRELESS_MODE
+                    WebSerial.printf("Recived diagnostic data: %x\n", dataIn[0]);
+                    #endif
                     break;
       }
     }
@@ -206,6 +210,9 @@ void loop()
       engineData.started = true;
       noOfNonZeroRpmRead = 0;
       Serial.printf("Engine start detected\n");
+      #ifdef WIRELESS_MODE
+      WebSerial.printf("Engine start detected\n");
+      #endif
       }
   }
   if (engineData.speed <= 0 && engineData.started) {
@@ -214,24 +221,38 @@ void loop()
     if (noOfZeroRpmRead >= NUMBER_OF_SPEED_READS_TO_DETERMINE_ENGINE_STATE){
       engineData.started = false;
       Serial.printf("Engne shutdown detected, saving engine hours...\n");
+      #ifdef WIRELESS_MODE
+      WebSerial.printf("Engne shutdown detected, saving engine hours...\n");
+      #endif
       Save_Engine_Hours();
+    }
+  }
+  if (!gotTemperature){
+    noOfNoTempReadings += 1;
+    if (noOfNoTempReadings >= 5){
+      engineData.waterTemperature = N2kDoubleNA;
+      engineData.waterTemperatureKelvin = N2kDoubleNA;
+      noOfNoTempReadings = 0;
     }
   }
 
   N2kMsg = (unsigned char)61444;
-  SetN2kPGN127488(N2kMsg, 0, (double) engineData.speed, (double) N2kDoubleNA, (int8_t) N2kInt8NA); // prepare the datagramm
+  SetN2kPGN127488(N2kMsg, 0, engineData.speed, (double) N2kDoubleNA, (int8_t) N2kInt8NA); // prepare the datagramm
   NMEA2000.SendMsg(N2kMsg);
 
   N2kMsg = (unsigned char)65253;
   //SetN2kPGN127489 (N2kMsg, 0, (unsigned long)200000, (unsigned long)293 , CToKelvin(engineData.waterTemperature), engineData.voltage, N2kDoubleNA, engineData.runningHours, N2kDoubleNA, N2kDoubleNA, N2kInt8NA, N2kInt8NA, 0xff, 0xff); //Test data
-  SetN2kPGN127489 (N2kMsg, 0, engineData.oilPressure, engineData.oilTemperature, CToKelvin(engineData.waterTemperature), engineData.voltage, N2kDoubleNA, engineData.runningHours, N2kDoubleNA, N2kDoubleNA, N2kInt8NA, N2kInt8NA, 0x00,0x00);
+  SetN2kPGN127489 (N2kMsg, 0, engineData.oilPressure, engineData.oilTemperature, engineData.waterTemperatureKelvin, engineData.voltage, N2kDoubleNA, engineData.runningHours, N2kDoubleNA, N2kDoubleNA, N2kInt8NA, N2kInt8NA, 0x00,0x00);
   NMEA2000.SendMsg(N2kMsg);
 
   //Serial.printf("Sent NMEA data\n");
   //WebSerial.printf("Sent NMEA data\n");
   Serial.printf("Sent NMEA2000 data\n");
-
   Serial.printf("Number of shutdowmns detected: %u\n", noOfShudownsDetected);
+  #ifdef WIRELESS_MODE
+  WebSerial.printf("Sent NMEA2000 data\n");
+  WebSerial.printf("Number of shutdowmns detected: %u\n", noOfShudownsDetected);
+  #endif
 } 
 
 // Function to check if SourceAddress has changed (due to address conflict on bus)
@@ -282,13 +303,16 @@ void Save_Engine_Hours()
 
 void Debug_Print ( const char * format, ... )
 {
-  char buffer[256];
+  char *buffer;
+
+  buffer = (char *)malloc(sizeof(char)*512);
   va_list args;
   va_start (args, format);
-  vsnprintf (buffer,256,format, args);
-  Serial.printf(buffer);
+  vsnprintf (buffer,512,format, args);
+  Serial.print(buffer);
   #ifdef WIRELESS_MODE
   WebSerial.print(buffer);
   #endif
   va_end (args);
+  free(buffer);
 }
