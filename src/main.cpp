@@ -173,31 +173,28 @@ void loop()
       {
         case 61444: if (!recivedRPM){
                       engineData.speed = (dataIn[4] * 256.0 + dataIn[3] ) / 8.0;                                                                      // send it out
-                      Serial.printf("Recived engine epeed: %.1f\n", engineData.speed);
+                      Debug_Print("Recived engine epeed: %.1f\n", engineData.speed);
                       recivedRPM = true;
                     }
                     break;
         case 65253: engineData.runningHours = ((dataIn[0] + dataIn[1] * 256.00)/20.00) * 3600.00;
-                    Serial.printf("Recived engine hours: %.1f\n", engineData.runningHours / 3600);
+                    Debug_Print("Recived engine hours: %.1f\n", engineData.runningHours / 3600);
                     break;
         case 65262: engineData.waterTemperature = dataIn[0] - 40;
                     engineData.oilTemperature = dataIn[3] * 256 + dataIn[2];
                     engineData.waterTemperatureKelvin = CToKelvin(engineData.waterTemperature);
-                    Serial.printf("Recived water temperature: %.1f\n", engineData.waterTemperature);
-                    Serial.printf("Recived oil temperature: %.1f\n", engineData.oilTemperature);
+                    Debug_Print("Recived water temperature: %.1f\n", engineData.waterTemperature);
+                    Debug_Print("Recived oil temperature: %.1f\n", engineData.oilTemperature);
                     noOfNoTempReadings = 0;
                     gotTemperature = true;
                     break;
         case 65271: engineData.voltage = (dataIn[7] * 256.0 + dataIn[6]) / 20.0;
-                    Serial.printf("Recived alternator voltage: %.1f\n", engineData.voltage);
+                    Debug_Print("Recived alternator voltage: %.1f\n", engineData.voltage);
                     break;
         case 65263: engineData.oilPressure = dataIn[3];
-                    Serial.printf("Recived oil pressure: %.1f\n", engineData.oilPressure);
+                    Debug_Print("Recived oil pressure: %.1f\n", engineData.oilPressure);
                     break;
-        case 65226: Serial.printf("Recived diagnostic data: %x\n", dataIn[0]);
-                    #ifdef WIRELESS_MODE
-                    WebSerial.printf("Recived diagnostic data: %x\n", dataIn[0]);
-                    #endif
+        case 65226: Debug_Print("Recived diagnostic data: %x\n", dataIn[0]);
                     break;
       }
     }
@@ -209,10 +206,7 @@ void loop()
     if(noOfNonZeroRpmRead >= NUMBER_OF_SPEED_READS_TO_DETERMINE_ENGINE_STATE){
       engineData.started = true;
       noOfNonZeroRpmRead = 0;
-      Serial.printf("Engine start detected\n");
-      #ifdef WIRELESS_MODE
-      WebSerial.printf("Engine start detected\n");
-      #endif
+      Debug_Print("Engine start detected\n");
       }
   }
   if (engineData.speed <= 0 && engineData.started) {
@@ -220,10 +214,7 @@ void loop()
     noOfZeroRpmRead += 1;
     if (noOfZeroRpmRead >= NUMBER_OF_SPEED_READS_TO_DETERMINE_ENGINE_STATE){
       engineData.started = false;
-      Serial.printf("Engne shutdown detected, saving engine hours...\n");
-      #ifdef WIRELESS_MODE
-      WebSerial.printf("Engne shutdown detected, saving engine hours...\n");
-      #endif
+      Debug_Print("Engne shutdown detected, saving engine hours...\n");
       Save_Engine_Hours();
     }
   }
@@ -245,14 +236,10 @@ void loop()
   SetN2kPGN127489 (N2kMsg, 0, engineData.oilPressure, engineData.oilTemperature, engineData.waterTemperatureKelvin, engineData.voltage, N2kDoubleNA, engineData.runningHours, N2kDoubleNA, N2kDoubleNA, N2kInt8NA, N2kInt8NA, 0x00,0x00);
   NMEA2000.SendMsg(N2kMsg);
 
-  //Serial.printf("Sent NMEA data\n");
+  //Debug_Print("Sent NMEA data\n");
   //WebSerial.printf("Sent NMEA data\n");
-  Serial.printf("Sent NMEA2000 data\n");
-  Serial.printf("Number of shutdowmns detected: %u\n", noOfShudownsDetected);
-  #ifdef WIRELESS_MODE
-  WebSerial.printf("Sent NMEA2000 data\n");
-  WebSerial.printf("Number of shutdowmns detected: %u\n", noOfShudownsDetected);
-  #endif
+  Debug_Print("Sent NMEA2000 data\n");
+  Debug_Print("Number of shutdowmns detected: %u\n", noOfShudownsDetected);
 } 
 
 // Function to check if SourceAddress has changed (due to address conflict on bus)
@@ -297,7 +284,7 @@ void Save_Engine_Hours()
   preferences.begin("nvs", false);
   preferences.putFloat("RunningHours", (float)engineData.runningHours);
   preferences.end();
-  Serial.printf("Engine shutdown detetected, running hours saved: %.2f\n", engineData.runningHours);
+  Debug_Print("Engine shutdown detetected, running hours saved: %.2f\n", engineData.runningHours);
   noOfShudownsDetected += 1;
 }
 
