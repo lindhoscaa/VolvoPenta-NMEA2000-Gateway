@@ -173,28 +173,28 @@ void loop()
       {
         case 61444: if (!recivedRPM){
                       engineData.speed = (dataIn[4] * 256.0 + dataIn[3] ) / 8.0;                                                                      // send it out
-                      Debug_Print("Recived engine epeed: %.1f\n", engineData.speed);
+                      //Debug_Print("Recived engine epeed: %.1f\n", engineData.speed);
                       recivedRPM = true;
                     }
                     break;
         case 65253: engineData.runningHours = ((dataIn[0] + dataIn[1] * 256.00)/20.00) * 3600.00;
-                    Debug_Print("Recived engine hours: %.1f\n", engineData.runningHours / 3600);
+                    //Debug_Print("Recived engine hours: %.1f\n", engineData.runningHours / 3600);
                     break;
         case 65262: engineData.waterTemperature = dataIn[0] - 40;
                     engineData.oilTemperature = dataIn[3] * 256 + dataIn[2];
                     engineData.waterTemperatureKelvin = CToKelvin(engineData.waterTemperature);
-                    Debug_Print("Recived water temperature: %.1f\n", engineData.waterTemperature);
-                    Debug_Print("Recived oil temperature: %.1f\n", engineData.oilTemperature);
+                    //Debug_Print("Recived water temperature: %.1f\n", engineData.waterTemperature);
+                    //Debug_Print("Recived oil temperature: %.1f\n", engineData.oilTemperature);
                     noOfNoTempReadings = 0;
                     gotTemperature = true;
                     break;
         case 65271: engineData.voltage = (dataIn[7] * 256.0 + dataIn[6]) / 20.0;
-                    Debug_Print("Recived alternator voltage: %.1f\n", engineData.voltage);
+                    //Debug_Print("Recived alternator voltage: %.1f\n", engineData.voltage);
                     break;
         case 65263: engineData.oilPressure = dataIn[3];
                     Debug_Print("Recived oil pressure: %.1f\n", engineData.oilPressure);
                     break;
-        case 65226: Debug_Print("Recived diagnostic data: %x\n", dataIn[0]);
+        case 65226: Debug_Print("Recived diagnostic data: %x %x %x %x\n", dataIn[0], dataIn[1], dataIn[2], dataIn[3]);
                     break;
       }
     }
